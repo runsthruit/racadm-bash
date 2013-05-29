@@ -17,12 +17,12 @@ function _racadm_bash_help ()
 	cat <<-EOF
 
 	racadm.bash <options> -u <user name> -p <password> -r <racIpAddr> <subcommand>
+	racadm.bash <options> [-u <user name>] -p <password> -r <racIpAddr> <subcommand>
+	racadm.bash <options> -i -r <racIpAddr> <subcommand>
 
 	EOF
 
 	#racadm.bash <options> <subcommand> <subcommand_options>
-	#racadm.bash <options> [-u <user name>] -p <password> -r <racIpAddr> <subcommand>
-	#racadm.bash <options> -i -r <racIpAddr> <subcommand>
 	#racadm.bash <options> -r <racIpAddr> <subcommand>
 
 	exit 1
@@ -100,7 +100,7 @@ function _racadm_bash_opts ()
 			( -i ) {
 				_racadm_use_int_unpw=1
 			};;
-			( -n ) {
+			( -n_DISABLED ) {
 				_racadm_use_netrc=1
 			};;
 			( -* ) { _racadm_bash_help "${V}"; };;
@@ -113,6 +113,8 @@ function _racadm_bash_opts ()
 		_racadm_cmd[${#_racadm_cmd[@]}]="${ARGV[${I}]}"
 	done
 
+	[ -n "${_racadm_ip}" ] || \
+		_racadm_bash_help
 	[ -n "${_racadm_un}" -a -z "${_racadm_pw}" ] && \
 		_racadm_bash_help
 	[ "${_racadm_use_int_unpw}" -eq 1 -o "${_racadm_use_netrc}" -eq 1 ] && \
@@ -121,9 +123,28 @@ function _racadm_bash_opts ()
 	[ "${_racadm_use_netrc}" -eq 1 -a -z "${_racadm_ip}" ] && \
 		_racadm_bash_help
 
+	[ "${_racadm_use_int_unpw}" -ne 1 ] || \
+		_racadm_bash_int_unpw
+
 	_racadm_ip="${_racadm_ip:-${_racadm_ip_def}}"
 	_racadm_un="${_racadm_un:-${_racadm_un_def}}"
 	_racadm_pw="${_racadm_pw:-${_racadm_pw_def}}"
+
+}
+
+function _racadm_bash_int_unpw ()
+{
+
+	while :
+	do
+		[ -n "${_racadm_un}" ] || \
+			read -p "Username: " _racadm_un
+		[ -n "${_racadm_pw}" ] || \
+			read -s -p "Password: " _racadm_pw
+		[ ! -t 0 ] || echo 1>&2
+		[ -z "${_racadm_un}" -o -z "${_racadm_pw}" ] || \
+			break
+	done
 
 }
 
@@ -172,7 +193,12 @@ function _racadm_exec ()
 	&& {
 		SID="$( echo "${OUT}" | sed -n "s=.*<SID>\(.*\)</SID>.*=\1=p"; )"
 	}
-	[ -z "${SID}" ] && _racadm_fail "${HDR}" "${OUT}"
+	[ -n "${SID}" ] || _racadm_fail "${HDR}" "${OUT}"
+	[ "${SID}" -ne 0 ] \
+	|| {
+		printf "Login failed: Bad username or password!\n" 1>&2
+		exit 1
+	}
 
 	TMP="$(
 		cat <<-EOF | eval "${CMD[@]}" "https://${_racadm_ip}/cgi-bin/exec" --cookie "sid=${SID}" | LC_ALL=C tr -d "\r"
