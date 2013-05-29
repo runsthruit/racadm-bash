@@ -127,6 +127,23 @@ function _racadm_bash_opts ()
 
 }
 
+function _racadm_fail ()
+{
+
+	cat <<-EOF 1>&2
+
+Command Failed!
+
+${1:-CURL ERROR}
+
+${2:-NO RESPONSE FROM SERVER}
+
+	EOF
+
+	exit 1
+
+}
+
 function _racadm_exec ()
 {
 
@@ -135,19 +152,21 @@ function _racadm_exec ()
 	declare -a CMD=(
 		curl
 		-qsk
+		-i
+		--connect-timeout 10
+		--max-time 60
 		-X POST
-		-D ">( sed \"s/^/= /\" 1>&2; )"
 		-d @-
 	)
 
-	TMP="$( { {
-		cat <<-EOF | eval "${CMD[@]}" "https://${_racadm_ip}/cgi-bin/login"
+	TMP="$(
+		cat <<-EOF | eval "${CMD[@]}" "https://${_racadm_ip}/cgi-bin/login" | LC_ALL=C tr -d "\r"
 			<?xml version='1.0'?>
 			<LOGIN><REQ><USERNAME>${_racadm_un}</USERNAME><PASSWORD>${_racadm_pw}</PASSWORD></REQ></LOGIN>
 		EOF
-	} | sed "s/^/. /"; } 2>&1; )"
-	HDR="$( echo "${TMP}" | sed -n "s/^= //p" )"
-	OUT="$( echo "${TMP}" | sed -n "s/^\. //p" )"
+	)"
+	HDR="$( echo "${TMP}" | sed -n "1,/^\$/p" )"
+	OUT="$( echo "${TMP}" | sed -n "/^\$/,\$p" )"
 	unset TMP
 	{ echo "${HDR}" | grep -nw 200 | grep -q ^1:; } \
 	&& {
@@ -155,14 +174,14 @@ function _racadm_exec ()
 	}
 	[ -z "${SID}" ] && _racadm_fail "${HDR}" "${OUT}"
 
-	TMP="$( { {
-		cat <<-EOF | eval "${CMD[@]}" "https://${_racadm_ip}/cgi-bin/exec" --cookie "sid=${SID}"
+	TMP="$(
+		cat <<-EOF | eval "${CMD[@]}" "https://${_racadm_ip}/cgi-bin/exec" --cookie "sid=${SID}" | LC_ALL=C tr -d "\r"
 			<?xml version='1.0'?>
 			<EXEC><REQ><CMDINPUT>racadm ${_racadm_cmd[@]}</CMDINPUT><MAXOUTPUTLEN>0x0fff</MAXOUTPUTLEN></REQ></EXEC>
 		EOF
-	} | sed "s/^/. /"; } 2>&1; )"
-	HDR="$( echo "${TMP}" | sed -n "s/^= //p" )"
-	OUT="$( echo "${TMP}" | sed -n "s/^\. //p" )"
+	)"
+	HDR="$( echo "${TMP}" | sed -n "1,/^\$/p" )"
+	OUT="$( echo "${TMP}" | sed -n "/^\$/,\$p" )"
 	unset TMP
 	{ echo "${HDR}" | grep -nw 200 | grep -q ^1:; } \
 	&& {
